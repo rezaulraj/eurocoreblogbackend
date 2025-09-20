@@ -14,6 +14,7 @@ import {
   getAdminPosts,
   toggleFeatured,
   getPostById,
+  totalPosts,
 } from "../controllers/postController.js";
 
 import { auth, authorAuth, adminAuth } from "../middleware/auth.js";
@@ -102,6 +103,9 @@ const validateImage = async (req, res, next) => {
 };
 
 // Public routes
+// Get total number of blogs
+router.get("/total", totalPosts);
+
 router.get("/", getPosts);
 router.get("/:slug", getPostBySlug);
 

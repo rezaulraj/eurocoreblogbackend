@@ -542,3 +542,14 @@ export const toggleFeatured = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+export const totalPosts = async (req, res) => {
+  try {
+    const totalPosts = await Post.countDocuments();
+    // console.log("totalpost", totalPosts);
+    res.json({ success: true, totalPosts });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};

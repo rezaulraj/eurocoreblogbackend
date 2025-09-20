@@ -11,7 +11,7 @@ import userRoutes from "./routes/users.js";
 import galleryRoutes from "./routes/galleryRoutes.js";
 import testimonialRoutes from "./routes/testimonialRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
-
+import visitorRoutes from "./routes/visitor.js";
 dotenv.config();
 
 connectDB();
@@ -28,6 +28,7 @@ const corsOptions = {
     const allowedOrigins = [
       "http://localhost:3000",
       "http://127.0.0.1:3000",
+      "http://localhost:4000",
       process.env.FRONTEND_URL,
     ];
 
@@ -64,6 +65,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/gallery", galleryRoutes);
 app.use("/api/testimonials", testimonialRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/visitors", visitorRoutes);
 
 app.use("/api", (req, res) => {
   res.status(404).json({
