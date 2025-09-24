@@ -12,6 +12,7 @@ import galleryRoutes from "./routes/galleryRoutes.js";
 import testimonialRoutes from "./routes/testimonialRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import visitorRoutes from "./routes/visitor.js";
+import analysisRoutes from "./routes/analysisRoutes.js";
 dotenv.config();
 
 connectDB();
@@ -66,6 +67,7 @@ app.use("/api/gallery", galleryRoutes);
 app.use("/api/testimonials", testimonialRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/visitors", visitorRoutes);
+app.use("/api", analysisRoutes);
 
 app.use("/api", (req, res) => {
   res.status(404).json({

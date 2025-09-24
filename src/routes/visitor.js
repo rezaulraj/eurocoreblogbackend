@@ -10,13 +10,13 @@ router.post("/track", async (req, res) => {
   try {
     let ip =
       req.headers["x-forwarded-for"]?.split(",")[0] || req.socket.remoteAddress;
-
+    console.log("ip", ip);
     // Replace localhost IP for testing
     if (ip === "::1" || ip === "127.0.0.1") ip = "8.8.8.8";
 
     const geo = geoip.lookup(ip);
     const country = geo?.country || "Unknown";
-
+    console.log("geo", geo, country);
     let visitor = await Visitor.findOne({ ip });
     if (!visitor) {
       visitor = new Visitor({ ip, country });
