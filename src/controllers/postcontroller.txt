@@ -1,6 +1,6 @@
 import Post from "../models/Post.js";
 import { validationResult } from "express-validator";
-import imgbbUploader from "imgbb-uploader";
+import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import path from "path";
 import fs from "fs/promises";
@@ -8,6 +8,12 @@ import sharp from "sharp";
 import dotenv from "dotenv";
 
 dotenv.config();
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
 // Configure multer for temporary file storage
 const storage = multer.diskStorage({
@@ -33,19 +39,17 @@ const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
-    const allowedFormats = /\.(jpg|jpeg|png|webp)$/i;
+    const allowedFormats = /\.(jpg|jpeg|png)$/i;
     const ext = path.extname(file.originalname).toLowerCase();
     const mimetype = file.mimetype;
 
     if (
       allowedFormats.test(ext) &&
-      (mimetype === "image/jpeg" ||
-        mimetype === "image/png" ||
-        mimetype === "image/webp")
+      (mimetype === "image/jpeg" || mimetype === "image/png")
     ) {
       cb(null, true);
     } else {
-      cb(new Error("Only JPEG, PNG, and WebP images are allowed"), false);
+      cb(new Error("Only JPEG and PNG images are allowed"), false);
     }
   },
 });
@@ -84,51 +88,7 @@ const validateImage = async (req, res, next) => {
   }
 };
 
-// ✅ Upload image to ImgBB
-const uploadToImgBB = async (filePath, fileName) => {
-  try {
-    // Read file and convert to base64
-    const fileBuffer = await fs.readFile(filePath);
-    const base64Image = fileBuffer.toString("base64");
-
-    const result = await imgbbUploader({
-      apiKey: process.env.IMGBB_API_KEY,
-      base64string: base64Image,
-      name: fileName || `post-${Date.now()}`,
-    });
-
-    return {
-      url: result.url,
-      imgbbId: result.id,
-      width: result.width,
-      height: result.height,
-    };
-  } catch (error) {
-    throw new Error(`ImgBB upload failed: ${error.message}`);
-  }
-};
-
-// ✅ Upload image from buffer to ImgBB
-const uploadBufferToImgBB = async (buffer, fileName) => {
-  try {
-    const base64Image = buffer.toString("base64");
-
-    const result = await imgbbUploader({
-      apiKey: process.env.IMGBB_API_KEY,
-      base64string: base64Image,
-      name: fileName || `post-${Date.now()}`,
-    });
-
-    return {
-      url: result.url,
-      imgbbId: result.id,
-    };
-  } catch (error) {
-    throw new Error(`ImgBB upload failed: ${error.message}`);
-  }
-};
-
-// @desc    Upload image to ImgBB
+// @desc    Upload image to Cloudinary
 // @route   POST /api/posts/upload
 // @access  Private
 export const uploadImage = async (req, res) => {
@@ -147,17 +107,26 @@ export const uploadImage = async (req, res) => {
     // Apply image validation
     await validateImage(req, res, () => {});
 
-    const result = await uploadToImgBB(req.file.path, req.body.title);
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      folder: "blog-posts",
+      transformation: [
+        { width: 1200, height: 630, crop: "limit", quality: "auto" },
+        { format: "auto" },
+      ],
+    });
 
-    // Clean up temporary file
     await fs.unlink(req.file.path);
 
     res.json({
       success: true,
-      image: result,
+      image: {
+        url: result.secure_url,
+        publicId: result.public_id,
+        width: result.width,
+        height: result.height,
+      },
     });
   } catch (error) {
-    // Cleanup on error
     if (
       req.file &&
       (await fs
@@ -176,6 +145,30 @@ export const uploadImage = async (req, res) => {
   }
 };
 
+// @desc    Delete image from Cloudinary
+// @route   DELETE /api/posts/upload/:publicId
+// @access  Private
+export const deleteImage = async (req, res) => {
+  try {
+    const { publicId } = req.params;
+    if (!publicId || !/^[a-zA-Z0-9_-]+$/.test(publicId)) {
+      return res.status(400).json({ message: "Invalid publicId format" });
+    }
+
+    const result = await cloudinary.uploader.destroy(publicId);
+    if (result.result === "ok") {
+      res.json({ success: true, message: "Image deleted successfully" });
+    } else {
+      res.status(404).json({ message: "Image not found" });
+    }
+  } catch (error) {
+    console.error("Delete error:", error);
+    res
+      .status(500)
+      .json({ message: "Image deletion failed", error: error.message });
+  }
+};
+
 // @desc    Create post
 // @route   POST /api/posts
 // @access  Private
@@ -188,16 +181,31 @@ export const createPost = async (req, res) => {
     let imageData = null;
     if (req.file) {
       try {
-        const result = await uploadBufferToImgBB(
-          req.file.buffer,
-          req.body.title
-        );
+        const result = await new Promise((resolve, reject) => {
+          const uploadStream = cloudinary.uploader.upload_stream(
+            {
+              folder: "blog-posts",
+              transformation: [{ width: 1200, height: 630, crop: "limit" }],
+            },
+            (error, result) => {
+              if (error) {
+                console.error("Cloudinary upload error:", error);
+                reject(error);
+              } else {
+                console.log("Cloudinary upload successful:", result);
+                resolve(result);
+              }
+            }
+          );
+          uploadStream.end(req.file.buffer);
+        });
+
         imageData = {
-          url: result.url,
-          imgbbId: result.imgbbId, // Store ImgBB ID instead of public_id
+          url: result.secure_url,
+          publicId: result.public_id,
         };
       } catch (error) {
-        console.error("ImgBB upload failed:", error);
+        console.error("Image upload failed:", error);
         return res.status(500).json({
           message: "Image upload failed",
           error: error.message,
@@ -219,7 +227,6 @@ export const createPost = async (req, res) => {
           .filter((tag) => tag);
       }
     }
-
     const post = new Post({
       title,
       content,
@@ -230,7 +237,6 @@ export const createPost = async (req, res) => {
       author: req.user.id,
       image: imageData,
     });
-
     const savedPost = await post.save();
     await savedPost.populate("author", "username avatar");
 
@@ -241,6 +247,9 @@ export const createPost = async (req, res) => {
   }
 };
 
+// @desc    Update post
+// @route   PUT /api/posts/:id
+// @access  Private
 // @desc    Update post
 // @route   PUT /api/posts/:id
 // @access  Private
@@ -261,23 +270,28 @@ export const updatePost = async (req, res) => {
 
     let imageData = post.image;
     if (req.file) {
-      // Note: Cannot delete old image from ImgBB on free plan
-      if (post.image?.imgbbId) {
-        console.log(
-          "Old image remains on ImgBB (free plan limitation):",
-          post.image.imgbbId
-        );
+      if (post.image?.publicId) {
+        try {
+          await cloudinary.uploader.destroy(post.image.publicId);
+        } catch (deleteError) {
+          console.error("Error deleting old image:", deleteError);
+        }
       }
 
       try {
-        const result = await uploadBufferToImgBB(
-          req.file.buffer,
-          req.body.title
-        );
-        imageData = {
-          url: result.url,
-          imgbbId: result.imgbbId,
-        };
+        const result = await new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "blog-posts",
+              transformation: [{ width: 1200, height: 630, crop: "limit" }],
+              invalidate: true,
+            },
+            (error, result) => (error ? reject(error) : resolve(result))
+          );
+          stream.end(req.file.buffer);
+        });
+
+        imageData = { url: result.secure_url, publicId: result.public_id };
       } catch (uploadError) {
         return res.status(500).json({
           message: "Image upload failed",
@@ -289,8 +303,8 @@ export const updatePost = async (req, res) => {
     const { title, content, tags, metaDescription, status, isFeatured } =
       req.body;
 
-    // Normalize tags safely
-    let tagsArray = post.tags;
+    // ✅ Normalize tags safely
+    let tagsArray = post.tags; // fallback to existing
     if (tags !== undefined) {
       if (Array.isArray(tags)) {
         tagsArray = tags.map((tag) => tag.toLowerCase().trim());
@@ -302,7 +316,7 @@ export const updatePost = async (req, res) => {
       }
     }
 
-    // Update fields
+    // ✅ Update fields
     post.title = title ?? post.title;
     post.content = content ?? post.content;
     post.tags = tagsArray;
@@ -335,19 +349,10 @@ export const deletePost = async (req, res) => {
         .json({ message: "Not authorized to delete this post" });
     }
 
-    // Note: Cannot delete image from ImgBB on free plan
-    if (post.image?.imgbbId) {
-      console.log(
-        "Image remains on ImgBB (free plan limitation):",
-        post.image.imgbbId
-      );
-    }
-
+    if (post.image?.publicId)
+      await cloudinary.uploader.destroy(post.image.publicId);
     await Post.findByIdAndDelete(req.params.id);
-    res.json({
-      message: "Post deleted successfully",
-      note: "Image remains on ImgBB servers due to free plan limitations",
-    });
+    res.json({ message: "Post deleted successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -541,11 +546,10 @@ export const toggleFeatured = async (req, res) => {
 export const totalPosts = async (req, res) => {
   try {
     const totalPosts = await Post.countDocuments();
+    // console.log("totalpost", totalPosts);
     res.json({ success: true, totalPosts });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: error.message });
   }
 };
-
-// Note: Image deletion endpoint is removed since ImgBB free plan doesn't support deletion

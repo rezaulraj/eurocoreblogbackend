@@ -13,6 +13,9 @@ const gallerySchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    imgbbId: {
+      type: String, // Store ImgBB image ID for reference
+    },
   },
   {
     timestamps: true,

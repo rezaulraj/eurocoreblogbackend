@@ -4,7 +4,8 @@ import {
   createGallery,
   getGallerys,
   getGallery,
-  updateCategory,
+  // updateCategory,
+  updateGallery,
   deleteGallery,
 } from "../controllers/galleryController.js";
 import { auth, adminAuth } from "../middleware/auth.js";
@@ -15,7 +16,8 @@ router.get("/", getGallerys);
 router.get("/:id", getGallery);
 
 router.post("/", auth, adminAuth, upload.single("image"), createGallery);
-router.put("/:id", auth, adminAuth, upload.single("image"), updateCategory);
+// router.put("/:id", auth, adminAuth, upload.single("image"), updateCategory);
+router.put("/:id", auth, adminAuth, upload.single("image"), updateGallery);
 router.delete("/:id", auth, adminAuth, deleteGallery);
 
 export default router;

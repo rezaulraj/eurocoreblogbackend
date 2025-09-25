@@ -27,11 +27,18 @@ const postSchema = new mongoose.Schema(
         type: String,
         default: null,
       },
-      publicId: {
+      // Changed from publicId to imgbbId
+      imgbbId: {
         type: String,
         default: null,
       },
+      // this for cloudeinary
+      // publicId: {
+      //   type: String,
+      //   default: null,
+      // },
     },
+
     author: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

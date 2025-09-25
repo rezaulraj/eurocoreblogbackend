@@ -24,6 +24,10 @@ const testimonialSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Store ImgBB image ID for reference
+    imgbbId: {
+      type: String,
+    },
     tags: [
       {
         type: String,
