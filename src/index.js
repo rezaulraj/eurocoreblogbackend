@@ -13,6 +13,7 @@ import testimonialRoutes from "./routes/testimonialRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import visitorRoutes from "./routes/visitor.js";
 import analysisRoutes from "./routes/analysisRoutes.js";
+import socialRoutes from "./routes/socialRoutes.js";
 dotenv.config();
 
 connectDB();
@@ -68,7 +69,7 @@ app.use("/api/testimonials", testimonialRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/visitors", visitorRoutes);
 app.use("/api", analysisRoutes);
-
+app.use("/api/socials", socialRoutes);
 app.use("/api", (req, res) => {
   res.status(404).json({
     success: false,
