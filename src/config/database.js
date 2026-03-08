@@ -1,13 +1,18 @@
-import mongoose from "mongoose";
+import sequelize from "./db.js";
+import "../models/index.js";
+
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(
-      process.env.MONGODB_URI || "mongodb://localhost:27017/blog-site"
-    );
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    await sequelize.authenticate();
+    console.log("MySQL connected successfully");
+
+    // DEV only
+    // await sequelize.sync({ alter: true });
+    await sequelize.sync();
+    console.log("Database synced");
   } catch (error) {
     console.error("Database connection error:", error);
-    process.exit(1);
+    throw error;
   }
 };
 

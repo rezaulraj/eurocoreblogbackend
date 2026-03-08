@@ -1,31 +1,21 @@
+// controllers/testimonialController.js
 import Testimonial from "../models/Testimonial.js";
 import imgbbUploader from "imgbb-uploader";
 
-// ✅ Upload to ImgBB (with buffer)
-const uploadToImgBB = (fileBuffer, fileName) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const base64Image = fileBuffer.toString("base64");
+const uploadToImgBB = async (fileBuffer, fileName) => {
+  const base64Image = fileBuffer.toString("base64");
 
-      const result = await imgbbUploader({
-        apiKey: process.env.IMGBB_API_KEY,
-        base64string: base64Image,
-        name: fileName || `testimonial-${Date.now()}`,
-      });
-
-      resolve(result);
-    } catch (error) {
-      reject(error);
-    }
+  return imgbbUploader({
+    apiKey: process.env.IMGBB_API_KEY,
+    base64string: base64Image,
+    name: fileName || `testimonial-${Date.now()}`,
   });
 };
 
-// ✅ Create new testimonial
 export const createTestimonial = async (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.file)
       return res.status(400).json({ message: "Image is required" });
-    }
 
     const result = await uploadToImgBB(req.file.buffer, req.body.author);
 
@@ -33,34 +23,33 @@ export const createTestimonial = async (req, res) => {
       author: req.body.author,
       role: req.body.role,
       text: req.body.text,
-      image: result.url, // ImgBB returns direct URL
-      imgbbId: result.id, // Store ImgBB ID instead of public_id
-      tags: req.body.tags ? req.body.tags.split(",") : [],
+      image: result.url,
+      imgbbId: result.id,
+      tags: req.body.tags ? req.body.tags.split(",").map((t) => t.trim()) : [],
       rating: req.body.rating || 5,
       isFeatured: req.body.isFeatured || false,
     });
 
     res.status(201).json(testimonial);
   } catch (err) {
-    console.error("Create Testimonial Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ Get all testimonials (unchanged)
 export const getTestimonials = async (req, res) => {
   try {
-    const testimonials = await Testimonial.find().sort({ createdAt: -1 });
+    const testimonials = await Testimonial.findAll({
+      order: [["createdAt", "DESC"]],
+    });
     res.json(testimonials);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ Get single testimonial (unchanged)
 export const getTestimonial = async (req, res) => {
   try {
-    const testimonial = await Testimonial.findById(req.params.id);
+    const testimonial = await Testimonial.findByPk(req.params.id);
     if (!testimonial) return res.status(404).json({ message: "Not found" });
     res.json(testimonial);
   } catch (err) {
@@ -68,62 +57,49 @@ export const getTestimonial = async (req, res) => {
   }
 };
 
-// ✅ Update testimonial (Note: Cannot delete old image from ImgBB on free plan)
 export const updateTestimonial = async (req, res) => {
   try {
-    let updateData = {
+    const testimonial = await Testimonial.findByPk(req.params.id);
+    if (!testimonial) return res.status(404).json({ message: "Not found" });
+
+    const updateData = {
       author: req.body.author,
       role: req.body.role,
       text: req.body.text,
-      tags: req.body.tags ? req.body.tags.split(",") : [],
+      tags: req.body.tags
+        ? req.body.tags.split(",").map((t) => t.trim())
+        : testimonial.tags,
       rating: req.body.rating,
       isFeatured: req.body.isFeatured,
     };
 
-    const testimonial = await Testimonial.findById(req.params.id);
-    if (!testimonial) return res.status(404).json({ message: "Not found" });
-
     if (req.file) {
-      // Upload new image to ImgBB
       const result = await uploadToImgBB(req.file.buffer, req.body.author);
       updateData.image = result.url;
       updateData.imgbbId = result.id;
-
-      // Note: Cannot delete old image from ImgBB on free plan
-      // The old image will remain on ImgBB servers
       console.log(
         "Old image remains on ImgBB (free plan limitation):",
-        testimonial.imgbbId
+        testimonial.imgbbId,
       );
     }
 
-    const updated = await Testimonial.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true }
-    );
-
-    res.json(updated);
+    await testimonial.update(updateData);
+    res.json(testimonial);
   } catch (err) {
-    console.error("Update Testimonial Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ Delete testimonial (Only removes from database, image remains on ImgBB)
 export const deleteTestimonial = async (req, res) => {
   try {
-    const testimonial = await Testimonial.findById(req.params.id);
+    const testimonial = await Testimonial.findByPk(req.params.id);
     if (!testimonial) return res.status(404).json({ message: "Not found" });
 
-    // Note: Cannot delete image from ImgBB on free plan
-    // The image will remain on ImgBB servers
     console.log(
       "Image remains on ImgBB (free plan limitation):",
-      testimonial.imgbbId
+      testimonial.imgbbId,
     );
-
-    await testimonial.deleteOne();
+    await testimonial.destroy();
 
     res.json({
       message: "Testimonial deleted successfully",

@@ -1,3 +1,4 @@
+// controllers/analyticsController.js
 import Analytics from "../models/Analytics.js";
 
 export const createAnalytics = async (req, res) => {
@@ -24,10 +25,14 @@ export const createAnalytics = async (req, res) => {
 export const getAnalytics = async (req, res) => {
   try {
     const { source } = req.query;
-    let query = {};
-    if (source) query.source = source;
+    const where = {};
+    if (source) where.source = source;
 
-    const analytics = await Analytics.find(query).sort({ createdAt: -1 });
+    const analytics = await Analytics.findAll({
+      where,
+      order: [["createdAt", "DESC"]],
+    });
+
     res.json(analytics);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -36,7 +41,7 @@ export const getAnalytics = async (req, res) => {
 
 export const getAnalyticsById = async (req, res) => {
   try {
-    const record = await Analytics.findById(req.params.id);
+    const record = await Analytics.findByPk(req.params.id);
     if (!record) return res.status(404).json({ message: "Not found" });
     res.json(record);
   } catch (err) {
@@ -46,11 +51,11 @@ export const getAnalyticsById = async (req, res) => {
 
 export const updateAnalytics = async (req, res) => {
   try {
-    const updated = await Analytics.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-    });
-    if (!updated) return res.status(404).json({ message: "Not found" });
-    res.json(updated);
+    const record = await Analytics.findByPk(req.params.id);
+    if (!record) return res.status(404).json({ message: "Not found" });
+
+    await record.update(req.body);
+    res.json(record);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -58,8 +63,10 @@ export const updateAnalytics = async (req, res) => {
 
 export const deleteAnalytics = async (req, res) => {
   try {
-    const deleted = await Analytics.findByIdAndDelete(req.params.id);
-    if (!deleted) return res.status(404).json({ message: "Not found" });
+    const record = await Analytics.findByPk(req.params.id);
+    if (!record) return res.status(404).json({ message: "Not found" });
+
+    await record.destroy();
     res.json({ message: "Analytics record deleted" });
   } catch (err) {
     res.status(500).json({ error: err.message });

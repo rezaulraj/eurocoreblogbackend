@@ -1,55 +1,52 @@
-import mongoose from "mongoose";
+import { DataTypes, Model } from "sequelize";
+import sequelize from "../config/db.js";
 
-const testimonialSchema = new mongoose.Schema(
+class Testimonial extends Model {}
+
+Testimonial.init(
   {
+    id: { type: DataTypes.BIGINT.UNSIGNED, autoIncrement: true, primaryKey: true },
     author: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 100,
+      type: DataTypes.STRING(100),
+      allowNull: false,
     },
     role: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 100,
+      type: DataTypes.STRING(100),
+      allowNull: false,
     },
     text: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 500,
+      type: DataTypes.STRING(500),
+      allowNull: false,
     },
     image: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(500),
+      allowNull: false,
     },
-    // Store ImgBB image ID for reference
     imgbbId: {
-      type: String,
+      type: DataTypes.STRING(255),
+      allowNull: true,
     },
-    tags: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
+    tags: {
+      type: DataTypes.JSON,
+      defaultValue: [],
+    },
     rating: {
-      type: Number,
-      min: 1,
-      max: 5,
-      default: 5,
+      type: DataTypes.INTEGER,
+      defaultValue: 5,
+      validate: { min: 1, max: 5 },
     },
     isFeatured: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
   },
   {
+    sequelize,
+    modelName: "Testimonial",
+    tableName: "testimonials",
     timestamps: true,
+    indexes: [{ fields: ["text"] }],
   }
 );
 
-testimonialSchema.index({ text: 1 }, { unique: false });
-
-export default mongoose.model("Testimonial", testimonialSchema);
+export default Testimonial;

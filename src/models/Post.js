@@ -1,103 +1,100 @@
-import mongoose from "mongoose";
+// models/Post.js
+import { DataTypes, Model } from "sequelize";
+import sequelize from "../config/db.js";
 
-const postSchema = new mongoose.Schema(
+class Post extends Model {}
+
+Post.init(
   {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     title: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 200,
+      type: DataTypes.STRING(200),
+      allowNull: false,
     },
     slug: {
-      type: String,
+      type: DataTypes.STRING(255),
       unique: true,
-      lowercase: true,
     },
     content: {
-      type: String,
-      required: true,
+      type: DataTypes.TEXT("long"),
+      allowNull: false,
     },
     excerpt: {
-      type: String,
-      maxlength: 300,
+      type: DataTypes.STRING(300),
+      allowNull: true,
     },
-    image: {
-      // Updated from featuredImage to image object
-      url: {
-        type: String,
-        default: null,
-      },
-      // Changed from publicId to imgbbId
-      imgbbId: {
-        type: String,
-        default: null,
-      },
-      // this for cloudeinary
-      // publicId: {
-      //   type: String,
-      //   default: null,
-      // },
+    imageUrl: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
-
-    author: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
+    imgbbId: {
+      type: DataTypes.STRING,
+      allowNull: true,
     },
-    tags: [
-      {
-        type: String,
-        trim: true,
-        lowercase: true,
-      },
-    ],
+    authorId: {
+      // ✅ important
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    tags: {
+      type: DataTypes.JSON,
+      allowNull: false,
+      defaultValue: [],
+    },
     status: {
-      type: String,
-      enum: ["draft", "published", "archived"],
-      default: "draft",
+      type: DataTypes.ENUM("draft", "published", "archived"),
+      allowNull: false,
+      defaultValue: "draft",
     },
     isFeatured: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     viewCount: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     publishedAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
     },
     metaDescription: {
-      type: String,
-      maxlength: 300,
+      type: DataTypes.STRING(300),
+      allowNull: true,
     },
   },
   {
+    sequelize,
+    modelName: "Post",
+    tableName: "posts",
     timestamps: true,
-  }
+    hooks: {
+      beforeValidate: (post) => {
+        // only generate if slug not already set by controller
+        if (!post.slug && post.title) {
+          let slug = post.title
+            .toLowerCase()
+            .replace(/[^a-z0-9 -]/g, "")
+            .replace(/\s+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-+/, "")
+            .replace(/-+$/, "");
+
+          if (!slug) slug = `post-${Date.now()}`;
+          post.slug = slug;
+        }
+      },
+    },
+    indexes: [
+      { fields: ["authorId", "status"] },
+      { fields: ["publishedAt"] },
+      { unique: true, fields: ["slug"] },
+    ],
+  },
 );
 
-// Slug generation middleware
-postSchema.pre("validate", function (next) {
-  if (this.isNew || this.isModified("title")) {
-    this.slug = this.title
-      .toLowerCase()
-      .replace(/[^a-z0-9 -]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+/, "")
-      .replace(/-+$/, "");
-
-    if (!this.slug) {
-      this.slug = `post-${Date.now()}`;
-    }
-  }
-  next();
-});
-
-// Indexes for performance
-postSchema.index({ author: 1, status: 1 });
-postSchema.index({ publishedAt: -1 });
-
-export default mongoose.model("Post", postSchema);
+export default Post;

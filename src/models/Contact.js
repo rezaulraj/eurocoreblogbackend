@@ -1,31 +1,28 @@
 import { DataTypes, Model } from "sequelize";
 import sequelize from "../config/db.js";
 
-class Gallery extends Model {}
+class Contact extends Model {}
 
-Gallery.init(
+Contact.init(
   {
     id: { type: DataTypes.BIGINT.UNSIGNED, autoIncrement: true, primaryKey: true },
-    text: {
+    title: {
       type: DataTypes.STRING(50),
       allowNull: false,
       unique: true,
     },
-    image: {
-      type: DataTypes.STRING(500),
+    phone: {
+      type: DataTypes.STRING(20),
       allowNull: false,
-    },
-    imgbbId: {
-      type: DataTypes.STRING(255),
-      allowNull: true,
+      unique: true,
     },
   },
   {
     sequelize,
-    modelName: "Gallery",
-    tableName: "galleries",
+    modelName: "Contact",
+    tableName: "contacts",
     timestamps: true,
   }
 );
 
-export default Gallery;
+export default Contact;

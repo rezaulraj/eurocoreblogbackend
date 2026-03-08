@@ -1,15 +1,20 @@
-import Post from "../models/Post.js";
+// controllers/postController.js
 import { validationResult } from "express-validator";
+import { Op } from "sequelize";
 import imgbbUploader from "imgbb-uploader";
+import fs from "fs/promises";
 import multer from "multer";
 import path from "path";
-import fs from "fs/promises";
 import sharp from "sharp";
 import dotenv from "dotenv";
 
+// import Post from "../models/Post.js";
+// import User from "../models/User.js";
+import { Post, User } from "../models/index.js";
 dotenv.config();
 
-// Configure multer for temporary file storage
+// (Your upload + validation helpers can stay mostly same)
+
 const storage = multer.diskStorage({
   destination: async (req, file, cb) => {
     const uploadPath = "uploads/temp/";
@@ -24,185 +29,74 @@ const storage = multer.diskStorage({
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
     cb(
       null,
-      `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`
+      `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`,
     );
   },
 });
 
-const upload = multer({
+export const upload = multer({
   storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-  fileFilter: (req, file, cb) => {
-    const allowedFormats = /\.(jpg|jpeg|png|webp)$/i;
-    const ext = path.extname(file.originalname).toLowerCase();
-    const mimetype = file.mimetype;
-
-    if (
-      allowedFormats.test(ext) &&
-      (mimetype === "image/jpeg" ||
-        mimetype === "image/png" ||
-        mimetype === "image/webp")
-    ) {
-      cb(null, true);
-    } else {
-      cb(new Error("Only JPEG, PNG, and WebP images are allowed"), false);
-    }
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
-// Custom middleware for image validation
-const validateImage = async (req, res, next) => {
-  if (!req.file) return next();
-
-  try {
-    const metadata = await sharp(req.file.path || req.file.buffer).metadata();
-    const minWidth = 800;
-    const minHeight = 600;
-    const acceptableRatios = [16 / 9, 4 / 3]; // Allow 16:9 or 4:3 aspect ratios
-
-    if (metadata.width < minWidth || metadata.height < minHeight) {
-      return res.status(400).json({
-        message: `Image dimensions must be at least ${minWidth}x${minHeight} pixels`,
-      });
-    }
-
-    const aspectRatio = metadata.width / metadata.height;
-    const isValidRatio = acceptableRatios.some(
-      (ratio) => Math.abs(aspectRatio - ratio) < 0.1 // Allow slight deviation
-    );
-    if (!isValidRatio) {
-      return res.status(400).json({
-        message: "Image must have a 16:9 or 4:3 aspect ratio",
-      });
-    }
-
-    next();
-  } catch (error) {
-    res
-      .status(400)
-      .json({ message: "Invalid image file", error: error.message });
-  }
-};
-
-// ✅ Upload image to ImgBB
-const uploadToImgBB = async (filePath, fileName) => {
-  try {
-    // Read file and convert to base64
-    const fileBuffer = await fs.readFile(filePath);
-    const base64Image = fileBuffer.toString("base64");
-
-    const result = await imgbbUploader({
-      apiKey: process.env.IMGBB_API_KEY,
-      base64string: base64Image,
-      name: fileName || `post-${Date.now()}`,
-    });
-
-    return {
-      url: result.url,
-      imgbbId: result.id,
-      width: result.width,
-      height: result.height,
-    };
-  } catch (error) {
-    throw new Error(`ImgBB upload failed: ${error.message}`);
-  }
-};
-
-// ✅ Upload image from buffer to ImgBB
 const uploadBufferToImgBB = async (buffer, fileName) => {
-  try {
-    const base64Image = buffer.toString("base64");
+  const base64Image = buffer.toString("base64");
+  const result = await imgbbUploader({
+    apiKey: process.env.IMGBB_API_KEY,
+    base64string: base64Image,
+    name: fileName || `post-${Date.now()}`,
+  });
 
-    const result = await imgbbUploader({
-      apiKey: process.env.IMGBB_API_KEY,
-      base64string: base64Image,
-      name: fileName || `post-${Date.now()}`,
-    });
+  return {
+    url: result.url,
+    imgbbId: result.id,
+  };
+};
 
-    return {
-      url: result.url,
-      imgbbId: result.id,
-    };
-  } catch (error) {
-    throw new Error(`ImgBB upload failed: ${error.message}`);
+const makeSlug = (title = "") => {
+  let slug = String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9 -]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+/, "")
+    .replace(/-+$/, "");
+
+  if (!slug) slug = `post-${Date.now()}`;
+  return slug;
+};
+
+const generateUniqueSlug = async (title, excludeId = null) => {
+  const baseSlug = makeSlug(title);
+
+  let slug = baseSlug;
+  let counter = 1;
+
+  while (true) {
+    const where = { slug };
+    if (excludeId) {
+      where.id = { [Op.ne]: excludeId };
+    }
+
+    const exists = await Post.findOne({ where, attributes: ["id"] });
+    if (!exists) return slug;
+
+    slug = `${baseSlug}-${counter}`;
+    counter += 1;
   }
 };
 
-// @desc    Upload image to ImgBB
-// @route   POST /api/posts/upload
-// @access  Private
-export const uploadImage = async (req, res) => {
-  try {
-    await new Promise((resolve, reject) => {
-      upload.single("image")(req, res, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-
-    if (!req.file) {
-      return res.status(400).json({ message: "No image file provided" });
-    }
-
-    // Apply image validation
-    await validateImage(req, res, () => {});
-
-    const result = await uploadToImgBB(req.file.path, req.body.title);
-
-    // Clean up temporary file
-    await fs.unlink(req.file.path);
-
-    res.json({
-      success: true,
-      image: result,
-    });
-  } catch (error) {
-    // Cleanup on error
-    if (
-      req.file &&
-      (await fs
-        .access(req.file.path)
-        .then(() => true)
-        .catch(() => false))
-    ) {
-      await fs
-        .unlink(req.file.path)
-        .catch((e) => console.error("Cleanup failed:", e));
-    }
-    console.error("Upload error:", error);
-    res
-      .status(500)
-      .json({ message: "Image upload failed", error: error.message });
-  }
-};
-
-// @desc    Create post
-// @route   POST /api/posts
-// @access  Private
 export const createPost = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty())
       return res.status(400).json({ errors: errors.array() });
 
-    let imageData = null;
+    let imageData = { url: null, imgbbId: null };
+
     if (req.file) {
-      try {
-        const result = await uploadBufferToImgBB(
-          req.file.buffer,
-          req.body.title
-        );
-        imageData = {
-          url: result.url,
-          imgbbId: result.imgbbId, // Store ImgBB ID instead of public_id
-        };
-      } catch (error) {
-        console.error("ImgBB upload failed:", error);
-        return res.status(500).json({
-          message: "Image upload failed",
-          error: error.message,
-        });
-      }
+      const result = await uploadBufferToImgBB(req.file.buffer, req.body.title);
+      imageData = { url: result.url, imgbbId: result.imgbbId };
     }
 
     const { title, content, tags, metaDescription, status, isFeatured } =
@@ -216,23 +110,35 @@ export const createPost = async (req, res) => {
         tagsArray = tags
           .split(",")
           .map((tag) => tag.toLowerCase().trim())
-          .filter((tag) => tag);
+          .filter(Boolean);
       }
     }
 
-    const post = new Post({
+    const slug = await generateUniqueSlug(title);
+
+    const post = await Post.create({
       title,
+      slug,
       content,
       tags: tagsArray,
       metaDescription,
       status: status || "draft",
-      isFeatured: isFeatured || false,
-      author: req.user.id,
-      image: imageData,
+      isFeatured: isFeatured === true || isFeatured === "true",
+      authorId: req.user.id,
+      imageUrl: imageData.url,
+      imgbbId: imageData.imgbbId,
+      publishedAt: (status || "draft") === "published" ? new Date() : null,
     });
 
-    const savedPost = await post.save();
-    await savedPost.populate("author", "username avatar");
+    const savedPost = await Post.findByPk(post.id, {
+      include: [
+        {
+          model: User,
+          as: "author",
+          attributes: ["id", "username", "avatar"],
+        },
+      ],
+    });
 
     res.status(201).json(savedPost);
   } catch (error) {
@@ -241,78 +147,81 @@ export const createPost = async (req, res) => {
   }
 };
 
-// @desc    Update post
-// @route   PUT /api/posts/:id
-// @access  Private
 export const updatePost = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty())
       return res.status(400).json({ errors: errors.array() });
 
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findByPk(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    if (post.author.toString() !== req.user.id && req.user.role !== "admin") {
+    if (
+      Number(post.authorId) !== Number(req.user.id) &&
+      req.user.role !== "admin"
+    ) {
       return res
         .status(403)
         .json({ message: "Not authorized to update this post" });
     }
 
-    let imageData = post.image;
+    let imageUrl = post.imageUrl;
+    let imgbbId = post.imgbbId;
+
     if (req.file) {
-      // Note: Cannot delete old image from ImgBB on free plan
-      if (post.image?.imgbbId) {
+      if (post.imgbbId) {
         console.log(
           "Old image remains on ImgBB (free plan limitation):",
-          post.image.imgbbId
+          post.imgbbId,
         );
       }
 
-      try {
-        const result = await uploadBufferToImgBB(
-          req.file.buffer,
-          req.body.title
-        );
-        imageData = {
-          url: result.url,
-          imgbbId: result.imgbbId,
-        };
-      } catch (uploadError) {
-        return res.status(500).json({
-          message: "Image upload failed",
-          error: uploadError.message,
-        });
-      }
+      const result = await uploadBufferToImgBB(req.file.buffer, req.body.title);
+      imageUrl = result.url;
+      imgbbId = result.imgbbId;
     }
 
-    const { title, content, tags, metaDescription, status, isFeatured } =
-      req.body;
-
-    // Normalize tags safely
-    let tagsArray = post.tags;
-    if (tags !== undefined) {
-      if (Array.isArray(tags)) {
-        tagsArray = tags.map((tag) => tag.toLowerCase().trim());
-      } else if (typeof tags === "string") {
-        tagsArray = tags
+    let tagsArray = post.tags || [];
+    if (req.body.tags !== undefined) {
+      if (Array.isArray(req.body.tags)) {
+        tagsArray = req.body.tags.map((tag) => tag.toLowerCase().trim());
+      } else if (typeof req.body.tags === "string") {
+        tagsArray = req.body.tags
           .split(",")
           .map((tag) => tag.toLowerCase().trim())
-          .filter((tag) => tag);
+          .filter(Boolean);
       }
     }
 
-    // Update fields
-    post.title = title ?? post.title;
-    post.content = content ?? post.content;
-    post.tags = tagsArray;
-    post.metaDescription = metaDescription ?? post.metaDescription;
-    post.status = status ?? post.status;
-    post.isFeatured = isFeatured ?? post.isFeatured;
-    post.image = imageData;
+    const nextStatus = req.body.status ?? post.status;
 
-    const updatedPost = await post.save();
-    await updatedPost.populate("author", "username avatar");
+    await post.update({
+      title: req.body.title ?? post.title,
+      content: req.body.content ?? post.content,
+      tags: tagsArray,
+      metaDescription: req.body.metaDescription ?? post.metaDescription,
+      status: nextStatus,
+      isFeatured:
+        req.body.isFeatured !== undefined
+          ? req.body.isFeatured
+          : post.isFeatured,
+      imageUrl,
+      imgbbId,
+      publishedAt:
+        nextStatus === "published" && !post.publishedAt
+          ? new Date()
+          : post.publishedAt,
+    });
+
+    const updatedPost = await Post.findByPk(post.id, {
+      include: [
+        {
+          model: User,
+          as: "author",
+          attributes: ["id", "username", "avatar"],
+        },
+      ],
+    });
 
     res.json(updatedPost);
   } catch (error) {
@@ -321,29 +230,29 @@ export const updatePost = async (req, res) => {
   }
 };
 
-// @desc    Delete post
-// @route   DELETE /api/posts/:id
-// @access  Private
 export const deletePost = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findByPk(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
-    if (post.author.toString() !== req.user.id && req.user.role !== "admin") {
+    if (
+      Number(post.authorId) !== Number(req.user.id) &&
+      req.user.role !== "admin"
+    ) {
       return res
         .status(403)
         .json({ message: "Not authorized to delete this post" });
     }
 
-    // Note: Cannot delete image from ImgBB on free plan
-    if (post.image?.imgbbId) {
+    if (post.imgbbId) {
       console.log(
         "Image remains on ImgBB (free plan limitation):",
-        post.image.imgbbId
+        post.imgbbId,
       );
     }
 
-    await Post.findByIdAndDelete(req.params.id);
+    await post.destroy();
+
     res.json({
       message: "Post deleted successfully",
       note: "Image remains on ImgBB servers due to free plan limitations",
@@ -353,26 +262,37 @@ export const deletePost = async (req, res) => {
   }
 };
 
-// @desc    Get posts
-// @route   GET /api/posts
-// @access  Public
 export const getPosts = async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
+    const page = parseInt(req.query.page || 1);
+    const limit = parseInt(req.query.limit || 10);
 
-    const filter = { status: "published" };
-    if (req.query.tag) filter.tags = req.query.tag.toLowerCase();
-    if (req.query.author) filter.author = req.query.author;
+    const where = { status: "published" };
 
-    const posts = await Post.find(filter)
-      .populate("author", "username avatar")
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
+    if (req.query.author) where.authorId = req.query.author;
 
-    const total = await Post.countDocuments(filter);
+    // For tags in JSON column, simplest approach is filter in app layer OR use MySQL JSON_CONTAINS raw query.
+    // Here is simple app-safe fallback:
+    const { rows, count } = await Post.findAndCountAll({
+      where,
+      include: [
+        { model: User, as: "author", attributes: ["id", "username", "avatar"] },
+      ],
+      order: [
+        ["publishedAt", "DESC"],
+        ["createdAt", "DESC"],
+      ],
+      limit,
+      offset: (page - 1) * limit,
+    });
+
+    let posts = rows;
+    if (req.query.tag) {
+      const tag = String(req.query.tag).toLowerCase();
+      posts = rows.filter((p) => Array.isArray(p.tags) && p.tags.includes(tag));
+    }
+
+    const total = req.query.tag ? posts.length : count;
 
     res.json({
       posts,
@@ -387,15 +307,19 @@ export const getPosts = async (req, res) => {
   }
 };
 
-// @desc    Get post by slug
-// @route   GET /api/posts/:slug
-// @access  Public
 export const getPostBySlug = async (req, res) => {
   try {
     const post = await Post.findOne({
-      slug: req.params.slug,
-      status: "published",
-    }).populate("author", "username avatar bio");
+      where: { slug: req.params.slug, status: "published" },
+      include: [
+        {
+          model: User,
+          as: "author",
+          attributes: ["id", "username", "avatar", "bio"],
+        },
+      ],
+    });
+
     if (!post) return res.status(404).json({ message: "Post not found" });
 
     post.viewCount += 1;
@@ -407,40 +331,49 @@ export const getPostBySlug = async (req, res) => {
   }
 };
 
-// @desc    Get user's posts
-// @route   GET /api/posts/user/:userId
-// @access  Private
+export const totalPosts = async (req, res) => {
+  try {
+    const total = await Post.count();
+    res.json({ success: true, totalPosts: total });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 export const getUserPosts = async (req, res) => {
   try {
-    const userId = req.params.userId;
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
+    const userId = Number(req.params.userId);
+    const page = parseInt(req.query.page || 1);
+    const limit = parseInt(req.query.limit || 10);
 
-    if (userId !== req.user.id && req.user.role !== "admin") {
+    if (Number(req.user.id) !== userId && req.user.role !== "admin") {
       return res
         .status(403)
         .json({ message: "Not authorized to view these posts" });
     }
 
-    const filter = { author: userId };
-    if (userId !== req.user.id && req.user.role !== "admin")
-      filter.status = "published";
+    const where = { authorId: userId };
 
-    const posts = await Post.find(filter)
-      .populate("author", "username avatar")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Post.countDocuments(filter);
+    const { rows, count } = await Post.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: "author",
+          attributes: ["id", "username", "avatar"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset: (page - 1) * limit,
+    });
 
     res.json({
-      posts,
+      posts: rows,
       currentPage: page,
-      totalPages: Math.ceil(total / limit),
-      totalPosts: total,
-      hasNext: page < Math.ceil(total / limit),
+      totalPages: Math.ceil(count / limit),
+      totalPosts: count,
+      hasNext: page < Math.ceil(count / limit),
       hasPrev: page > 1,
     });
   } catch (error) {
@@ -448,37 +381,39 @@ export const getUserPosts = async (req, res) => {
   }
 };
 
-// @desc    Get posts for admin dashboard
-// @route   GET /api/posts/admin/all
-// @access  Private (Admin only)
 export const getAdminPosts = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
+    const page = parseInt(req.query.page || 1);
+    const limit = parseInt(req.query.limit || 20);
     const status = req.query.status;
 
-    const filter = {};
-    if (status) filter.status = status;
+    const where = {};
+    if (status) where.status = status;
 
-    const posts = await Post.find(filter)
-      .populate("author", "username email")
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Post.countDocuments(filter);
+    const { rows, count } = await Post.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: "author",
+          attributes: ["id", "username", "email"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset: (page - 1) * limit,
+    });
 
     res.json({
-      posts,
+      posts: rows,
       currentPage: page,
-      totalPages: Math.ceil(total / limit),
-      totalPosts: total,
-      hasNext: page < Math.ceil(total / limit),
+      totalPages: Math.ceil(count / limit),
+      totalPosts: count,
+      hasNext: page < Math.ceil(count / limit),
       hasPrev: page > 1,
     });
   } catch (error) {
@@ -486,23 +421,22 @@ export const getAdminPosts = async (req, res) => {
   }
 };
 
-// @desc    Get post by ID (for editing)
-// @route   GET /api/posts/id/:id
-// @access  Private
 export const getPostById = async (req, res) => {
   try {
-    const post = await Post.findById(req.params.id).populate(
-      "author",
-      "username avatar bio"
-    );
+    const post = await Post.findByPk(req.params.id, {
+      include: [
+        {
+          model: User,
+          as: "author",
+          attributes: ["id", "username", "avatar", "bio"],
+        },
+      ],
+    });
 
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
+    if (!post) return res.status(404).json({ message: "Post not found" });
 
-    // Check if user is authorized to view this post (author or admin)
     if (
-      post.author._id.toString() !== req.user.id &&
+      Number(post.authorId) !== Number(req.user.id) &&
       req.user.role !== "admin"
     ) {
       return res
@@ -517,35 +451,20 @@ export const getPostById = async (req, res) => {
   }
 };
 
-// @desc    Toggle post featured status
-// @route   PATCH /api/posts/:id/featured
-// @access  Private (Admin only)
 export const toggleFeatured = async (req, res) => {
   try {
     if (req.user.role !== "admin") {
       return res.status(403).json({ message: "Admin access required" });
     }
 
-    const post = await Post.findById(req.params.id);
+    const post = await Post.findByPk(req.params.id);
     if (!post) return res.status(404).json({ message: "Post not found" });
 
     post.isFeatured = !post.isFeatured;
-    const updatedPost = await post.save();
+    await post.save();
 
-    res.json(updatedPost);
+    res.json(post);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
-
-export const totalPosts = async (req, res) => {
-  try {
-    const totalPosts = await Post.countDocuments();
-    res.json({ success: true, totalPosts });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-// Note: Image deletion endpoint is removed since ImgBB free plan doesn't support deletion

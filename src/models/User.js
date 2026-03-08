@@ -1,64 +1,92 @@
-import mongoose from "mongoose";
+import { DataTypes, Model } from "sequelize";
 import bcrypt from "bcryptjs";
+import sequelize from "../config/db.js";
 
-const userSchema = new mongoose.Schema(
+class User extends Model {
+  async comparePassword(candidatePassword) {
+    if (!this.password) return false;
+    return bcrypt.compare(candidatePassword, this.password);
+  }
+}
+
+User.init(
   {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     username: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(30),
+      allowNull: false,
       unique: true,
-      trim: true,
-      minlength: 3,
-      maxlength: 30,
+      validate: {
+        len: [3, 30],
+      },
     },
     email: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(120),
+      allowNull: false,
       unique: true,
-      lowercase: true,
-      match: [
-        /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
-        "Please enter a valid email",
-      ],
+      validate: {
+        isEmail: true,
+      },
+      set(value) {
+        this.setDataValue("email", value?.toLowerCase().trim());
+      },
     },
     password: {
-      type: String,
-      required: true,
-      minlength: 6,
+      type: DataTypes.STRING,
+      allowNull: false,
+      validate: {
+        len: [6, 255],
+      },
     },
     role: {
-      type: String,
-      enum: ["admin", "author", "user"],
-      default: "user",
+      type: DataTypes.ENUM("admin", "author", "user"),
+      allowNull: false,
+      defaultValue: "user",
     },
     avatar: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING,
+      allowNull: true,
+      defaultValue: null,
     },
     bio: {
-      type: String,
-      maxlength: 500,
+      type: DataTypes.STRING(500),
+      allowNull: true,
     },
     isActive: {
-      type: Boolean,
-      default: true,
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
     },
   },
   {
+    sequelize, // ✅ THIS is the key fix
+    modelName: "User",
+    tableName: "users",
     timestamps: true,
-  }
+    hooks: {
+      beforeCreate: async (user) => {
+        if (user.password) {
+          user.password = await bcrypt.hash(user.password, 12);
+        }
+      },
+      beforeUpdate: async (user) => {
+        if (user.changed("password")) {
+          user.password = await bcrypt.hash(user.password, 12);
+        }
+      },
+    },
+    defaultScope: {
+      attributes: { exclude: ["password"] },
+    },
+    scopes: {
+      withPassword: {
+        attributes: { include: ["password"] },
+      },
+    },
+  },
 );
 
-// Hash password before saving
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
-  this.password = await bcrypt.hash(this.password, 12);
-  next();
-});
-
-// Compare password method
-userSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
-
-export default mongoose.model("User", userSchema);
+export default User;

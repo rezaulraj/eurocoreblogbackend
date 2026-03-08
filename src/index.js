@@ -3,28 +3,33 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
+
 import connectDB from "./config/database.js";
 
-import authRoutes from "./routes/auth.js";
-import postRoutes from "./routes/posts.js";
-import userRoutes from "./routes/users.js";
+import authRoutes from "./routes/authRoutes.js";
+import postRoutes from "./routes/postRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 import galleryRoutes from "./routes/galleryRoutes.js";
 import testimonialRoutes from "./routes/testimonialRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
-import visitorRoutes from "./routes/visitor.js";
+import visitorRoutes from "./routes/visitorRoutes.js";
 import analysisRoutes from "./routes/analysisRoutes.js";
 import socialRoutes from "./routes/socialRoutes.js";
-dotenv.config();
+import contactRoutes from "./routes/contactRoutes.js";
+import emailRoutes from "./routes/emailRoutes.js";
+import locationRoutes from "./routes/locationRoutes.js";
+import categoryRoutes from "./routes/categoryRoutes.js";
 
-connectDB();
+dotenv.config();
 
 const app = express();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// CORS
 const corsOptions = {
-  origin: function (origin, callback) {
+  origin(origin, callback) {
     if (!origin) return callback(null, true);
 
     const allowedOrigins = [
@@ -32,16 +37,16 @@ const corsOptions = {
       "http://127.0.0.1:3000",
       "http://localhost:4000",
       process.env.FRONTEND_URL,
-    ];
+    ].filter(Boolean);
 
     if (
-      allowedOrigins.indexOf(origin) !== -1 ||
+      allowedOrigins.includes(origin) ||
       process.env.NODE_ENV === "development"
     ) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
+      return callback(null, true);
     }
+
+    return callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
   optionsSuccessStatus: 200,
@@ -51,8 +56,10 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+// Static uploads (if you still use local temp/public files)
 app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
 
+// Health
 app.get("/api/health", (req, res) => {
   res.status(200).json({
     success: true,
@@ -61,15 +68,22 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+// API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/posts", postRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/gallery", galleryRoutes);
 app.use("/api/testimonials", testimonialRoutes);
-app.use("/api/analytics", analyticsRoutes);
+app.use("/api/analytics", analyticsRoutes); // enable if converted controller is ready
 app.use("/api/visitors", visitorRoutes);
-app.use("/api", analysisRoutes);
+app.use("/api", analysisRoutes); // this file already defines /analyses paths
 app.use("/api/socials", socialRoutes);
+app.use("/api/contacts", contactRoutes);
+app.use("/api/emails", emailRoutes);
+app.use("/api/locations", locationRoutes);
+app.use("/api/categories", categoryRoutes);
+
+// API 404
 app.use("/api", (req, res) => {
   res.status(404).json({
     success: false,
@@ -77,6 +91,7 @@ app.use("/api", (req, res) => {
   });
 });
 
+// Frontend build (production)
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "../client/build")));
 
@@ -85,8 +100,9 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
+// Global error handler (Sequelize-friendly)
 app.use((err, req, res, next) => {
-  console.error("Error Stack:", err.stack);
+  console.error("Error Stack:", err);
 
   if (err.message === "Not allowed by CORS") {
     return res.status(403).json({
@@ -95,23 +111,34 @@ app.use((err, req, res, next) => {
     });
   }
 
-  if (err.name === "ValidationError") {
-    const errors = Object.values(err.errors).map((val) => val.message);
+  // Multer errors
+  if (err.name === "MulterError") {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+
+  // Sequelize validation
+  if (err.name === "SequelizeValidationError") {
     return res.status(400).json({
       success: false,
       message: "Validation Error",
-      errors,
+      errors: err.errors.map((e) => e.message),
     });
   }
 
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyValue)[0];
+  // Sequelize unique constraint
+  if (err.name === "SequelizeUniqueConstraintError") {
     return res.status(400).json({
       success: false,
-      message: `${field} already exists`,
+      message:
+        err.errors?.[0]?.message ||
+        `${err.errors?.[0]?.path || "Field"} already exists`,
     });
   }
 
+  // JWT
   if (err.name === "JsonWebTokenError") {
     return res.status(401).json({
       success: false,
@@ -134,10 +161,23 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(
-    `Server running in ${
-      process.env.NODE_ENV || "development"
-    } mode on port ${PORT}`
-  );
-});
+// Start after DB is connected
+const startServer = async () => {
+  try {
+    await connectDB(); // Sequelize authenticate + sync inside this function
+    app.listen(PORT, () => {
+      console.log(
+        `Server running in ${
+          process.env.NODE_ENV || "development"
+        } mode on port ${PORT}`,
+      );
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error.message);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+export default app;

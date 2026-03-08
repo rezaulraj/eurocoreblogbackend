@@ -1,109 +1,169 @@
+// controllers/galleryController.js
 import Gallery from "../models/Gallery.js";
 import imgbbUploader from "imgbb-uploader";
+import { Op } from "sequelize";
 
+const normalizeText = (v = "") => String(v).trim();
+
+const uploadToImgBB = async (buffer, name) => {
+  const base64Image = buffer.toString("base64");
+  return imgbbUploader({
+    apiKey: process.env.IMGBB_API_KEY,
+    base64string: base64Image,
+    name: name || `gallery-${Date.now()}`,
+  });
+};
+
+// CREATE
 export const createGallery = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: "Image is required" });
+    const text = normalizeText(req.body.text);
+
+    if (!text) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Text is required" });
+    }
+    if (text.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: "Text must be less than or equal to 50 characters",
+      });
     }
 
-    // Convert buffer to base64 for ImgBB
-    const base64Image = req.file.buffer.toString("base64");
+    if (!req.file) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Image is required" });
+    }
 
-    // Upload to ImgBB instead of Cloudinary
-    const result = await imgbbUploader({
-      apiKey: process.env.IMGBB_API_KEY, // Make sure to add this to your .env
-      base64string: base64Image,
-      name: req.body.text || `gallery-${Date.now()}`,
-    });
+    // check unique text before upload (saves ImgBB usage)
+    const exists = await Gallery.findOne({ where: { text } });
+    if (exists) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Text already exists" });
+    }
+
+    const result = await uploadToImgBB(req.file.buffer, text);
 
     const gallery = await Gallery.create({
-      text: req.body.text,
-      image: result.url, // ImgBB returns the URL directly
-      imgbbId: result.id, // Store ImgBB ID for reference
+      text,
+      image: result.url,
+      imgbbId: result.id,
     });
 
-    res.status(201).json(gallery);
+    return res.status(201).json({ success: true, data: gallery });
   } catch (err) {
-    console.error("ImgBB Upload Error:", err);
-    res.status(500).json({ error: err.message });
+    if (err.name === "SequelizeUniqueConstraintError") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Text already exists" });
+    }
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ✅ Get all Gallerys (unchanged)
-export const getGallerys = async (req, res) => {
+// GET ALL
+export const getGalleries = async (req, res) => {
   try {
-    const gallerys = await Gallery.find().sort({ createdAt: -1 });
-    res.json(gallerys);
+    const galleries = await Gallery.findAll({ order: [["createdAt", "DESC"]] });
+    return res.json({ success: true, data: galleries });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ✅ Get single Gallery (unchanged)
-export const getGallery = async (req, res) => {
+// GET ONE
+export const getGalleryById = async (req, res) => {
   try {
-    const gallery = await Gallery.findById(req.params.id);
-    if (!gallery) return res.status(404).json({ message: "Not found" });
-    res.json(gallery);
+    const gallery = await Gallery.findByPk(req.params.id);
+    if (!gallery)
+      return res.status(404).json({ success: false, message: "Not found" });
+    return res.json({ success: true, data: gallery });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ✅ Update Gallery (text + new image optional)
+// UPDATE (text optional, image optional)
 export const updateGallery = async (req, res) => {
   try {
-    let updateData = { text: req.body.text };
+    const gallery = await Gallery.findByPk(req.params.id);
+    if (!gallery)
+      return res
+        .status(404)
+        .json({ success: false, message: "Gallery not found" });
 
-    if (req.file) {
-      // Convert buffer to base64 for ImgBB
-      const base64Image = req.file.buffer.toString("base64");
+    const updateData = {};
 
-      // Upload new image to ImgBB
-      const result = await imgbbUploader({
-        apiKey: process.env.IMGBB_API_KEY,
-        base64string: base64Image,
-        name: req.body.text || `gallery-update-${Date.now()}`,
+    // update text only if provided
+    if (req.body.text !== undefined) {
+      const text = normalizeText(req.body.text);
+
+      if (!text) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Text cannot be empty" });
+      }
+      if (text.length > 50) {
+        return res.status(400).json({
+          success: false,
+          message: "Text must be less than or equal to 50 characters",
+        });
+      }
+
+      // unique check (exclude current id)
+      const exists = await Gallery.findOne({
+        where: { text, id: { [Op.ne]: gallery.id } },
       });
+      if (exists) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Text already exists" });
+      }
 
+      updateData.text = text;
+    }
+
+    // update image if provided
+    if (req.file) {
+      const name =
+        updateData.text || gallery.text || `gallery-update-${Date.now()}`;
+      const result = await uploadToImgBB(req.file.buffer, name);
       updateData.image = result.url;
       updateData.imgbbId = result.id;
     }
 
-    const updatedGallery = await Gallery.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      { new: true, runValidators: true }
-    );
+    await gallery.update(updateData);
 
-    if (!updatedGallery) {
-      return res.status(404).json({ message: "Gallery not found" });
-    }
-
-    res.json(updatedGallery);
+    return res.json({ success: true, data: gallery });
   } catch (err) {
-    console.error("Update Error:", err);
-    res.status(500).json({ error: err.message });
+    if (err.name === "SequelizeUniqueConstraintError") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Text already exists" });
+    }
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ✅ Delete Gallery
+// DELETE
 export const deleteGallery = async (req, res) => {
   try {
-    const deletedGallery = await Gallery.findByIdAndDelete(req.params.id);
+    const gallery = await Gallery.findByPk(req.params.id);
+    if (!gallery)
+      return res
+        .status(404)
+        .json({ success: false, message: "Gallery not found" });
 
-    if (!deletedGallery) {
-      return res.status(404).json({ message: "Gallery not found" });
-    }
+    await gallery.destroy();
 
-    // Note: ImgBB free plan doesn't support image deletion via API
-    // The image will remain on ImgBB servers, only the database record is deleted
-    res.json({
+    return res.json({
+      success: true,
       message: "Gallery deleted successfully",
-      note: "Image remains on ImgBB servers (free plan limitation)",
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -1,18 +1,42 @@
-import mongoose from "mongoose";
+import { DataTypes, Model } from "sequelize";
+import sequelize from "../config/db.js";
 
-const analyticsSchema = new mongoose.Schema(
+class Analytics extends Model {}
+
+Analytics.init(
   {
-    source: {
-      type: String,
-      enum: ["google", "facebook"],
-      required: true,
+    id: {
+      type: DataTypes.BIGINT.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
     },
-    metric: { type: String, required: true }, // e.g. page_views, clicks, conversions
-    value: { type: Number, required: true },
-    date: { type: Date, default: Date.now }, // when recorded
-    metadata: { type: Object }, // store extra details (campaignId, userAgent, referrer, etc.)
+    source: {
+      type: DataTypes.ENUM("google", "facebook"),
+      allowNull: false,
+    },
+    metric: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+    },
+    value: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+    date: {
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
+    },
+    metadata: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
   },
-  { timestamps: true }
+  {
+    sequelize,
+    modelName: "Analytics",
+    tableName: "analytics",
+    timestamps: true,
+  },
 );
 
-export default mongoose.model("Analytics", analyticsSchema);
+export default Analytics;

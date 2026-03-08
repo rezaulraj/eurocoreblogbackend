@@ -1,26 +1,27 @@
 import { DataTypes, Model } from "sequelize";
 import sequelize from "../config/db.js";
 
-class Social extends Model {}
+class Location extends Model {}
 
-Social.init(
+Location.init(
   {
     id: {
       type: DataTypes.BIGINT.UNSIGNED,
       autoIncrement: true,
       primaryKey: true,
     },
-    link: {
-      type: DataTypes.STRING(500),
+    location: {
+      type: DataTypes.STRING(50),
       allowNull: false,
+      unique: true,
     },
   },
   {
     sequelize,
-    modelName: "Social",
-    tableName: "socials",
+    modelName: "Location",
+    tableName: "locations",
     timestamps: true,
   },
 );
 
-export default Social;
+export default Location;

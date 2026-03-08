@@ -1,14 +1,30 @@
-import mongoose from "mongoose";
+import { DataTypes, Model } from "sequelize";
+import sequelize from "../config/db.js";
 
-const analysisSchema = new mongoose.Schema(
+class Analysis extends Model {}
+
+Analysis.init(
   {
-    sourceBy: {
-      type: String,
-      required: true,
+    id: {
+      type: DataTypes.BIGINT.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
     },
-    metadata: { type: Object },
+    sourceBy: {
+      type: DataTypes.STRING(255),
+      allowNull: false,
+    },
+    metadata: {
+      type: DataTypes.JSON,
+      allowNull: true,
+    },
   },
-  { timestamps: true }
+  {
+    sequelize,
+    modelName: "Analysis",
+    tableName: "analyses",
+    timestamps: true,
+  },
 );
 
-export default mongoose.model("Analysis", analysisSchema);
+export default Analysis;

@@ -1,193 +1,156 @@
+// controllers/categoryController.js
 import Category from "../models/Category.js";
 
-// GET all categories
 export const getCategories = async (req, res) => {
   try {
-    const categories = await Category.find({}).sort({ createdAt: -1 });
+    const categories = await Category.findAll({
+      order: [["createdAt", "DESC"]],
+    });
+
     res.status(200).json({
       success: true,
       data: categories,
-      count: categories.length
+      count: categories.length,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error fetching categories",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// GET single category by ID
 export const getCategory = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid category ID"
-      });
-    }
+    const category = await Category.findByPk(req.params.id);
 
-    const category = await Category.findById(id);
-    
     if (!category) {
       return res.status(404).json({
         success: false,
-        message: "Category not found"
+        message: "Category not found",
       });
     }
 
-    res.status(200).json({
-      success: true,
-      data: category
-    });
+    res.status(200).json({ success: true, data: category });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error fetching category",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// CREATE new category
 export const createCategory = async (req, res) => {
   try {
     const { title } = req.body;
 
-    // Validation
     if (!title || title.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        message: "Title is required"
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Title is required" });
     }
 
     if (title.length > 50) {
       return res.status(400).json({
         success: false,
-        message: "Title must be less than 50 characters"
+        message: "Title must be less than 50 characters",
       });
     }
 
-    const category = await Category.create({ title });
-    
+    const category = await Category.create({ title: title.trim() });
+
     res.status(201).json({
       success: true,
       message: "Category created successfully",
-      data: category
+      data: category,
     });
   } catch (error) {
-    if (error.code === 11000) {
+    if (error.name === "SequelizeUniqueConstraintError") {
       return res.status(400).json({
         success: false,
-        message: "Category title already exists"
+        message: "Category title already exists",
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: "Error creating category",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// UPDATE category
 export const updateCategory = async (req, res) => {
   try {
-    const { id } = req.params;
     const { title } = req.body;
+    const category = await Category.findByPk(req.params.id);
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid category ID"
-      });
+    if (!category) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Category not found" });
     }
 
-    // Validation
     if (!title || title.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        message: "Title is required"
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: "Title is required" });
     }
 
     if (title.length > 50) {
       return res.status(400).json({
         success: false,
-        message: "Title must be less than 50 characters"
+        message: "Title must be less than 50 characters",
       });
     }
 
-    const category = await Category.findByIdAndUpdate(
-      id,
-      { title },
-      { new: true, runValidators: true }
-    );
-
-    if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found"
-      });
-    }
+    await category.update({ title: title.trim() });
 
     res.status(200).json({
       success: true,
       message: "Category updated successfully",
-      data: category
+      data: category,
     });
   } catch (error) {
-    if (error.code === 11000) {
+    if (error.name === "SequelizeUniqueConstraintError") {
       return res.status(400).json({
         success: false,
-        message: "Category title already exists"
+        message: "Category title already exists",
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: "Error updating category",
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// DELETE category
 export const deleteCategory = async (req, res) => {
   try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid category ID"
-      });
-    }
-
-    const category = await Category.findByIdAndDelete(id);
+    const category = await Category.findByPk(req.params.id);
 
     if (!category) {
-      return res.status(404).json({
-        success: false,
-        message: "Category not found"
-      });
+      return res
+        .status(404)
+        .json({ success: false, message: "Category not found" });
     }
+
+    await category.destroy();
 
     res.status(200).json({
       success: true,
       message: "Category deleted successfully",
-      data: category
+      data: category,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: "Error deleting category",
-      error: error.message
+      error: error.message,
     });
   }
 };
